@@ -4,7 +4,6 @@ Shared pytest fixtures for SmartFactory Reliability Analytics.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pandas as pd
@@ -12,69 +11,24 @@ import pytest
 from sqlalchemy import create_engine
 
 
-def _strip_postgres_comments(schema_sql: str) -> str:
-    """
-    Remove PostgreSQL COMMENT ON statements for SQLite compatibility.
-    Handles multi-line COMMENT ON TABLE ... IS '...'; statements.
-    """
-    return re.sub(
-        r"COMMENT\s+ON\s+TABLE\s+.*?;",
-        "",
-        schema_sql,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-
-
-def _make_schema_sqlite_compatible(schema_sql: str) -> str:
-    """
-    Convert the production PostgreSQL schema.sql into a SQLite-compatible form.
-
-    SQLite compatibility changes:
-    - Remove CREATE SCHEMA statements.
-    - Remove COMMENT ON TABLE statements.
-    - Replace BIGSERIAL / SERIAL with INTEGER.
-    - Replace TIMESTAMPTZ / TIMESTAMP WITH TIME ZONE with TEXT.
-    - Keep raw.table_name and analytics.table_name by attaching SQLite databases
-      named raw and analytics.
-    """
-    schema_sql = _strip_postgres_comments(schema_sql)
-
-    replacements = [
-        (r"CREATE\s+SCHEMA\s+IF\s+NOT\s+EXISTS\s+\w+;", ""),
-        (r"BIGSERIAL", "INTEGER"),
-        (r"\bSERIAL\b", "INTEGER"),
-        (r"TIMESTAMP\s+WITH\s+TIME\s+ZONE", "TEXT"),
-        (r"TIMESTAMPTZ", "TEXT"),
-        (r"NOW\(\)", "CURRENT_TIMESTAMP"),
-        (r"BOOLEAN", "INTEGER"),
-        (r"NUMERIC\(\d+,\s*\d+\)", "REAL"),
-        (r"NUMERIC", "REAL"),
-    ]
-
-    for pattern, replacement in replacements:
-        schema_sql = re.sub(pattern, replacement, schema_sql, flags=re.IGNORECASE)
-
-    return schema_sql
-
-
 @pytest.fixture()
 def test_engine():
     """
-    Create an in-memory SQLite database with attached raw and analytics schemas.
+    Create an in-memory SQLite database for ETL unit tests.
 
-    SQLite does not support PostgreSQL schemas directly, so this fixture attaches
-    two in-memory databases named raw and analytics. This allows statements like
-    CREATE TABLE raw.machine_sensor_data (...) to work during tests.
+    The production schema is PostgreSQL-specific and uses raw/analytics schemas,
+    PostgreSQL indexes, comments, and data types. SQLite does not fully support
+    that syntax.
+
+    This fixture still confirms that sql/schema.sql exists, then creates the
+    minimal SQLite-compatible test table needed to validate idempotent loading.
     """
-    engine = create_engine("sqlite:///:memory:", future=True)
-
     project_root = Path(__file__).resolve().parents[1]
     schema_path = project_root / "sql" / "schema.sql"
 
     assert schema_path.exists(), f"Missing schema file: {schema_path}"
 
-    schema_sql = schema_path.read_text(encoding="utf-8")
-    sqlite_schema_sql = _make_schema_sqlite_compatible(schema_sql)
+    engine = create_engine("sqlite:///:memory:", future=True)
 
     raw_connection = engine.raw_connection()
 
@@ -82,7 +36,29 @@ def test_engine():
         cursor = raw_connection.cursor()
         cursor.execute("ATTACH DATABASE ':memory:' AS raw;")
         cursor.execute("ATTACH DATABASE ':memory:' AS analytics;")
-        cursor.executescript(sqlite_schema_sql)
+
+        cursor.executescript(
+            """
+            CREATE TABLE raw.machine_sensor_data (
+                sensor_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                machine_id TEXT NOT NULL,
+                machine_type TEXT NOT NULL,
+                shift TEXT NOT NULL,
+                temperature_c REAL NOT NULL,
+                vibration_mm_s REAL NOT NULL,
+                motor_current_a REAL NOT NULL,
+                pressure_bar REAL NOT NULL,
+                speed_rpm REAL NOT NULL,
+                production_count INTEGER NOT NULL,
+                anomaly_flag INTEGER NOT NULL DEFAULT 0,
+                data_source TEXT NOT NULL DEFAULT 'synthetic_tyre_factory',
+                ingested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (machine_id, timestamp)
+            );
+            """
+        )
+
         raw_connection.commit()
     finally:
         raw_connection.close()

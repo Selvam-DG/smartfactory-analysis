@@ -42,7 +42,6 @@ from sqlalchemy import Engine, text
 
 from src.utils.db import get_engine
 
-
 LOG_FORMAT = "%(asctime)s %(levelname)-8s %(message)s"
 
 LOGGER = logging.getLogger(__name__)
@@ -89,6 +88,7 @@ def get_psycopg2_database_url() -> str:
 # STEP 1 — Read CSV files
 # ============================================================
 
+
 def read_csv_if_exists(path: Path) -> pd.DataFrame | None:
     if not path.exists():
         LOGGER.warning("CSV file not found: %s", path)
@@ -127,6 +127,7 @@ def read_raw_csvs(raw_dir: Path) -> dict[str, pd.DataFrame]:
 # ============================================================
 # STEP 2 — Validate each DataFrame
 # ============================================================
+
 
 def log_dropped_rows(table_name: str, reason: str, before_count: int, after_count: int) -> None:
     dropped = before_count - after_count
@@ -259,8 +260,8 @@ def validate_production(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     df["efficiency_pct"] = (
-        df["actual_qty"] / df["planned_qty"].replace(0, pd.NA) * 100
-    ).fillna(0).round(2)
+        (df["actual_qty"] / df["planned_qty"].replace(0, pd.NA) * 100).fillna(0).round(2)
+    )
 
     if "data_source" not in df.columns:
         df["data_source"] = "synthetic_tyre_factory"
@@ -339,6 +340,7 @@ def validate_dataframes(dataframes: dict[str, pd.DataFrame]) -> dict[str, pd.Dat
 # ============================================================
 # STEP 3 — Bulk load raw schema using psycopg2 execute_values
 # ============================================================
+
 
 def normalize_value(value: Any) -> Any:
     if pd.isna(value):
@@ -591,6 +593,7 @@ def load_raw_tables(dataframes: dict[str, pd.DataFrame]) -> dict[str, int]:
 # STEP 4 and STEP 5 — Compute analytics tables with SQLAlchemy
 # ============================================================
 
+
 def add_missing_analytics_columns(engine: Engine) -> None:
     """
     Adds columns required by the requested analytics logic if they do not exist yet.
@@ -667,7 +670,13 @@ def refresh_machine_daily_kpi(engine: Engine) -> int:
             p.good_qty,
             p.rejected_qty,
             COALESCE(b.downtime_hours, 0) AS downtime_hours,
-            GREATEST(0, LEAST(100, ((24.0 - COALESCE(b.downtime_hours, 0)) / 24.0) * 100)) AS availability_pct,
+            GREATEST(
+                    0,
+                    LEAST(
+                        100,
+                        ((24.0 - COALESCE(b.downtime_hours, 0)) / 24.0) * 100
+                    )
+                ) AS availability_pct,
             GREATEST(0, LEAST(120, p.performance_pct)) AS performance_pct,
             CASE
                 WHEN p.actual_qty > 0 THEN (p.good_qty::NUMERIC / p.actual_qty) * 100
@@ -781,10 +790,16 @@ def refresh_machine_reliability(engine: Engine) -> int:
             mp.period_end,
             COALESCE(f.total_failures, 0) AS total_failures,
             COALESCE(f.total_downtime_hours, 0) AS total_downtime_hours,
-            GREATEST(0, mp.total_calendar_hours - COALESCE(f.total_downtime_hours, 0)) AS total_operating_hours,
+            GREATEST(
+                    0,
+                    mp.total_calendar_hours - COALESCE(f.total_downtime_hours, 0)
+                ) AS total_operating_hours,
             CASE
                 WHEN COALESCE(f.total_failures, 0) > 0
-                THEN GREATEST(0, mp.total_calendar_hours - COALESCE(f.total_downtime_hours, 0)) / f.total_failures
+                THEN GREATEST(
+                        0,
+                        mp.total_calendar_hours - COALESCE(f.total_downtime_hours, 0)
+                    ) / f.total_failures
                 ELSE NULL
             END AS mtbf_hours,
             CASE
@@ -794,7 +809,12 @@ def refresh_machine_reliability(engine: Engine) -> int:
             END AS mttr_hours,
             CASE
                 WHEN mp.total_calendar_hours > 0
-                THEN GREATEST(0, mp.total_calendar_hours - COALESCE(f.total_downtime_hours, 0)) / mp.total_calendar_hours * 100
+                THEN (
+                    GREATEST(
+                        0,
+                        mp.total_calendar_hours - COALESCE(f.total_downtime_hours, 0)
+                    ) / mp.total_calendar_hours
+                ) * 100
                 ELSE 0
             END AS availability_pct,
             CASE
@@ -806,7 +826,10 @@ def refresh_machine_reliability(engine: Engine) -> int:
             COALESCE(m.maintenance_overdue_count, 0) AS maintenance_overdue_count,
             CASE
                 WHEN COALESCE(m.total_maintenance_count, 0) > 0
-                THEN COALESCE(m.maintenance_completed_count, 0)::NUMERIC / m.total_maintenance_count * 100
+                THEN (
+                        COALESCE(m.maintenance_completed_count, 0)::NUMERIC
+                        / m.total_maintenance_count
+                    ) * 100
                 ELSE NULL
             END AS maintenance_compliance_pct
         FROM machine_period mp
@@ -989,6 +1012,7 @@ def refresh_analytics_tables(engine: Engine) -> dict[str, int]:
 # ============================================================
 # Main pipeline entry point
 # ============================================================
+
 
 def run_etl(raw_dir: Path = Path("data/raw")) -> dict[str, dict[str, int]]:
     """

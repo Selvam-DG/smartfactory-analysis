@@ -40,7 +40,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -88,7 +87,11 @@ ROOT_CAUSES = {
     "Hydraulic Leak": ["Hydraulic hose crack", "Seal wear", "Loose hydraulic fitting"],
     "PLC Fault": ["PLC IO module fault", "Communication loss", "Sensor feedback mismatch"],
     "Overheating": ["Cooling fan failure", "Blocked ventilation", "High process temperature"],
-    "Mechanical Jam": ["Material feed misalignment", "Worn guide roller", "Foreign material obstruction"],
+    "Mechanical Jam": [
+        "Material feed misalignment",
+        "Worn guide roller",
+        "Foreign material obstruction",
+    ],
 }
 
 ACTION_TAKEN = {
