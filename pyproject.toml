@@ -1,0 +1,29 @@
+[project]
+name = "smartfactory-reliability-analytics"
+version = "0.1.0"
+description = "Privacy-safe industrial reliability analytics platform using Azure PM-style and synthetic tyre manufacturing data."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Selvam DG" }
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src", "dashboard"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+log_cli = true
+log_cli_level = "INFO"
+addopts = "-ra"
